@@ -5,11 +5,13 @@ using HarmonyLib;
 // using System.Linq;
 // using System.Reflection;
 // using System.Security.Principal;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using YARG.Gameplay;
 using TMPro;
 using UnityEngine.SceneManagement;
+using System.Security.Permissions;
 // using YARG.Core.Chart;
 // using YARG.Core.Engine;
 
@@ -47,13 +49,12 @@ namespace AccelerationMode
 
         private const string MyGUID = "com.yoshibyl.AccelerationMode";
         private const string PluginName = "AccelerationMode";
-        private const string VersionString = "0.1.1";
-
-        public Font mainFont;
+        private const string VersionString = "0.2.0";
 
         public float netSpeed;
+        public float maxSpeed;
         public bool spActive;
-
+        public bool maxSpeedEnabled;
         public bool accelModeEnabled;
 
         public void ToggleAccelMode()
@@ -62,10 +63,12 @@ namespace AccelerationMode
             {
                 if (accelModeEnabled)
                 {
+                    cfgAccelModeToggle.SetSerializedValue("false");
                     accelModeEnabled = false;
                 }
                 else
                 {
+                    cfgAccelModeToggle.SetSerializedValue("true");
                     accelModeEnabled = true;
                 } // */
                 UpdateWatermark("<size=20>(click to toggle)</size><br>");
@@ -79,9 +82,7 @@ namespace AccelerationMode
             {
                 if (!playerOne.Stats.IsStarPowerActive)
                 {
-                    gmObj = GameObject.Find("Game Manager");
-                    gameMgr = gmObj.GetComponent<YARG.Gameplay.GameManager>();
-                    netSpeed -= 0.01f;
+                    netSpeed -= gtrMissSlowdown;
                     if (netSpeed < 1f)
                         netSpeed = 1f;
                     if (gameMgr.ActualSongSpeed > 1f)
@@ -95,14 +96,14 @@ namespace AccelerationMode
         {
             if (accelModeEnabled)
             {
-                if (!playerOne.Stats.IsStarPowerActive && gameMgr.ActualSongSpeed < 2f)
+                if (!playerOne.Stats.IsStarPowerActive && gameMgr.ActualSongSpeed < songSpeedCap)
                 {
-                    netSpeed += 0.0025f;
+                    netSpeed += gtrHitSpeedup;
                     
-                    if (netSpeed > 2f)
-                        netSpeed = 2f;
-
-                    gameMgr.SetSongSpeed(netSpeed);
+                    if (netSpeed > songSpeedCap)
+                        netSpeed = songSpeedCap;
+                    if (gameMgr.ActualSongSpeed < songSpeedCap)
+                        gameMgr.SetSongSpeed(netSpeed);
                 }
                 playerOne.Stats.Score = 0;
                 scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
@@ -139,12 +140,9 @@ namespace AccelerationMode
         // GameObject trackObj;  // Highway
         YARG.Gameplay.Player.BasePlayer playerOne;
         
-
-        // bool toggleWasMade;
         Button btnAccel;
 
-        // Text btnTxt;
-
+        // i tried to make a thing to show notifications using the in-game toasts
         /*
         public void ShowToast(string msg = "", string level = "Info")
         {
@@ -195,17 +193,64 @@ namespace AccelerationMode
             }
         }
 
+        // <CONFIG>
+        ConfigFile cfg;
+        public ConfigEntry<float> cfgSpeedCap;
+        public ConfigEntry<bool>  cfgSpeedCapEnabled;
+        public ConfigEntry<float> cfgGtrHitSpeedup;
+        public ConfigEntry<float> cfgGtrMissSlowdown;
+        public ConfigEntry<bool> cfgAccelModeToggle;
+
+        public float songSpeedCap;
+        public bool  songSpeedCapEnabled;
+        public float gtrHitSpeedup;
+        public float gtrMissSlowdown;
+        // </CONFIG>
+
         public void Awake()
         {
-            // toggleWasMade = false;
-            accelModeEnabled = false;
+            // init config stuff
+            cfg = new ConfigFile(Path.Combine(Paths.ConfigPath, "AccelerationMode.cfg"), true);
+
+            cfgAccelModeToggle = cfg.Bind("General",
+                "acceleration_mode_enabled",
+                true,
+                "Enables the Acceleration Mode functionality.  Can be controlled in-game in the top-right corner.");
+            cfgSpeedCapEnabled = cfg.Bind("General",
+                "enable_speed_cap",
+                true,
+                "Whether the song speed should be limited.");
+            cfgSpeedCap = cfg.Bind("General",
+                "speed_cap_percent",
+                200f,
+                "The maximum song speed.  Only applies if enable_speed_cap is set to true.");
+
+            cfgGtrHitSpeedup = cfg.Bind("Guitar",
+                "hit_speedup_percent",
+                0.25f,
+                "Percentage to raise song speed by with each note hit.");
+            cfgGtrMissSlowdown = cfg.Bind("Guitar",
+                "miss_slowdown_percent",
+                1f,
+                "Percentage to lower song speed by with each missed note.");
+
+            // variables innit bruv
+            songSpeedCap        = System.Math.Abs(cfgSpeedCap.Value / 100);
+            songSpeedCapEnabled = cfgSpeedCapEnabled.Value;
+            gtrHitSpeedup       = System.Math.Abs(cfgGtrHitSpeedup.Value / 100);
+            gtrMissSlowdown     = System.Math.Abs(cfgGtrMissSlowdown.Value / 100);
+
+            if (!songSpeedCapEnabled || songSpeedCap > 50f)
+                songSpeedCap = 50f;
+
+            accelModeEnabled = cfgAccelModeToggle.Value;
             netSpeed = 1f;
             isPlayingSong = false;
             changedWM = false;
 
-            Logger.LogInfo("YARGmod is loading...");
+            Logger.LogInfo("AccelerationMode is loading...");
             Harmony.PatchAll();
-            Logger.LogInfo("YARGmod is loaded.");
+            Logger.LogInfo("AccelerationMode is loaded.");
         }
 
         public void LateUpdate()
@@ -236,7 +281,6 @@ namespace AccelerationMode
                         UpdateWatermark("<size=20><i>*Setting locked during play*</i></size><br>");
                         isPlayingSong = true;
                     }
-
                     
                     /*
                     // Disable highway to hide the jank
@@ -287,12 +331,12 @@ namespace AccelerationMode
             }
             // */
 
-
             if (playerOne.Stats.IsStarPowerActive && accelModeEnabled && netSpeed != 1f)
             {
                 netSpeed = 1f;
                 gameMgr.SetSongSpeed(netSpeed);
-                
+                scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
+
                 // old functionality i guess
 
                 // playerOne.Stats.StarPowerAmount -= 0.499999; 
