@@ -1,4 +1,7 @@
-# Acceleration Mode for [YARG](https://yarg.in/)'s new engine (v0.12.0-a5)
+# Please don't install this.
+It doesn't work on the newer builds of YARG (like `a6`), and even on the `a5` build, it was very unoptimized.
+
+# ~~Acceleration Mode~~ for [YARG](https://yarg.in/)'s new engine (v0.12.0-a5)
 A [BepInEx 6](https://github.com/BepInEx/BepInEx/releases/tag/v6.0.0-pre.1) game mod for YARG (Yet Another Rhythm Game) that makes songs speed up with every note hit.
 
 ### ***PLEASE do not report bugs to the YARG team while this mod is installed!***
