@@ -34,13 +34,6 @@
     <Reference Include="0Harmony">
       <HintPath>..\..\_RequiredDLLsForYARGmodding\0Harmony.dll</HintPath>
     </Reference>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>..\..\_RequiredDLLsForYARGmodding\Assembly-CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="Assembly-CSharp-firstpass, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\_RequiredDLLsForYARGmodding\Assembly-CSharp-firstpass.dll</HintPath>
-    </Reference>
     <Reference Include="BepInEx.Core">
       <HintPath>..\..\_RequiredDLLsForYARGmodding\BepInEx.Core.dll</HintPath>
     </Reference>
@@ -85,9 +78,6 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\_RequiredDLLsForYARGmodding\UnityEngine.UI.dll</HintPath>
     </Reference>
-    <Reference Include="YARG.Core">
-      <HintPath>..\..\_RequiredDLLsForYARGmodding\YARG.Core.dll</HintPath>
-    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Properties\Resources.Designer.cs">
@@ -98,7 +88,6 @@
     <Compile Include="AccelerationModePlugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
-  <ItemGroup />
   <ItemGroup>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>

@@ -2,37 +2,73 @@
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
-// using System.Linq;
-// using System.Reflection;
-// using System.Security.Principal;
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Security.Principal;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
-using YARG.Gameplay;
 using TMPro;
 using UnityEngine.SceneManagement;
 using System.Security.Permissions;
-// using YARG.Core.Chart;
-// using YARG.Core.Engine;
+using System.Collections;
+using System.Collections.Generic;
+using System.CodeDom;
+using System.Diagnostics.Eventing.Reader;
 
 namespace AccelerationMode
 {
-    [HarmonyPatch(typeof(YARG.Gameplay.Player.FiveFretPlayer), "OnNoteMissed")]
-    public class FiveFretMissNoteHandler
+    
+    [HarmonyPatch(typeName:"YARG.Gameplay.Player.FiveFretPlayer", methodName:"OnNoteMissed")]
+    class FiveFretMissNoteHandler
     {
         [HarmonyPostfix]
-        static void Postfix()
+        static void Postfix(ref object __instance)
         {
-            AccelerationModePlugin.Instance.FiveFretMissNotePostfix();
+            try
+            {
+                AccelerationModePlugin.Instance.FiveFretMissNotePostfix();
+            } catch { }
         }
     }
-    [HarmonyPatch(typeof(YARG.Gameplay.Player.FiveFretPlayer), "OnNoteHit")]
-    public class FiveFretHitNoteHandler
+    
+    [HarmonyPatch(typeName: "YARG.Gameplay.Player.FiveFretPlayer", methodName: "OnNoteHit")]
+    class FiveFretHitNoteHandler
     {
         [HarmonyPostfix]
-        static void Postfix()
+        static void Postfix(ref object __instance)
         {
-            AccelerationModePlugin.Instance.FiveFretHitNotePostfix();
+            try
+            {
+                AccelerationModePlugin.Instance.FiveFretHitNotePostfix();
+            } catch { }
+        }
+    }
+    [HarmonyPatch(typeName: "YARG.Gameplay.Player.DrumsPlayer", methodName: "OnNoteHit")]
+    class DrumsHitNoteHandler
+    {
+        [HarmonyPostfix]
+        static void Postfix(ref object __instance)
+        {
+            try
+            {
+                AccelerationModePlugin.Instance.FiveFretHitNotePostfix(); // change to drums later
+            }
+            catch { }
+        }
+    }
+    [HarmonyPatch(typeName: "YARG.Gameplay.Player.DrumsPlayer", methodName: "OnNoteMissed")]
+    class DrumsMissNoteHandler
+    {
+        [HarmonyPostfix]
+        static void Postfix(ref object __instance)
+        {
+            try
+            {
+                AccelerationModePlugin.Instance.FiveFretMissNotePostfix(); // change to drums later
+            }
+            catch { }
         }
     }
 
@@ -40,7 +76,8 @@ namespace AccelerationMode
     public class AccelerationModePlugin : BaseUnityPlugin
     {
         public static AccelerationModePlugin Instance {  get; private set; }
-        private static readonly Harmony Harmony = new Harmony(MyGUID);
+        public static readonly Harmony harmony = new Harmony(MyGUID);
+        private static bool didPatch = false;
         public static ManualLogSource Log = new ManualLogSource(PluginName);
         public AccelerationModePlugin()
         {
@@ -49,13 +86,25 @@ namespace AccelerationMode
 
         private const string MyGUID = "com.yoshibyl.AccelerationMode";
         private const string PluginName = "AccelerationMode";
-        private const string VersionString = "0.2.0";
+        private const string VersionString = "0.3.0-pre1";
+
+        public string LogMsg(object obj)
+        {
+            Logger.LogMessage(obj);
+            // Console.WriteLine(obj.ToString());
+            return obj.ToString();
+        }
+
+        public Assembly asm;
+        public Assembly yargCoreAsm;
 
         public float netSpeed;
         public float maxSpeed;
         public bool spActive;
         public bool maxSpeedEnabled;
         public bool accelModeEnabled;
+
+        
 
         public void ToggleAccelMode()
         {
@@ -70,25 +119,54 @@ namespace AccelerationMode
                 {
                     cfgAccelModeToggle.SetSerializedValue("true");
                     accelModeEnabled = true;
-                } // */
+                }
                 UpdateWatermark("<size=20>(click to toggle)</size><br>");
             }
         }
 
-        // private readonly Assembly asm = Assembly.Load("Assembly-CSharp");
+        public void UpdateSongSpeed(float speed)
+        {
+            if (gmt != null)
+            {
+                MethodInfo songSpeedMethod = gmt.GetMethod("SetSongSpeed");
+                if (gameMgr != null && songSpeedMethod != null)
+                {
+                    object[] args = new object[] { speed };
+                    songSpeedMethod.Invoke(gameMgr, args);
+                    // LogMsg("Song speed set to: " + GetSongSpeed());
+                }
+            }
+        }
+
+        public float GetSongSpeed()
+        {
+            float ret = 0f;
+
+            if (gmt != null && gameMgr != null)
+            {
+                var gm = gameMgr;
+
+                ret = (float)gmt.GetProperty("ActualSongSpeed").GetValue(gm);
+            }
+            return ret;
+        }
+
         internal void FiveFretMissNotePostfix()
         {
             if (accelModeEnabled)
             {
-                if (!playerOne.Stats.IsStarPowerActive)
+                float actualSpeed = GetSongSpeed();
+                if (!IsSPActive(0))
                 {
                     netSpeed -= gtrMissSlowdown;
                     if (netSpeed < 1f)
                         netSpeed = 1f;
-                    if (gameMgr.ActualSongSpeed > 1f)
-                        gameMgr.SetSongSpeed(netSpeed);
+                    if (actualSpeed != netSpeed)
+                    {
+                        UpdateSongSpeed(netSpeed);
+                    }
                 }
-                scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
+                // scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
             }
         }
 
@@ -96,21 +174,22 @@ namespace AccelerationMode
         {
             if (accelModeEnabled)
             {
-                if (!playerOne.Stats.IsStarPowerActive && gameMgr.ActualSongSpeed < songSpeedCap)
+                float actualSpeed = GetSongSpeed();
+                if (!IsSPActive(0) && actualSpeed < songSpeedCap)
                 {
                     netSpeed += gtrHitSpeedup;
                     
                     if (netSpeed > songSpeedCap)
                         netSpeed = songSpeedCap;
-                    if (gameMgr.ActualSongSpeed < songSpeedCap)
-                        gameMgr.SetSongSpeed(netSpeed);
+                    if (actualSpeed < songSpeedCap)
+                        UpdateSongSpeed(netSpeed);
                 }
-                playerOne.Stats.Score = 0;
-                scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
+                // SetScore();  // Score handling is broken currently :(
+                // scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
             }
         }
 
-        // Drums acceleration mode planned (maybe)
+        // Separate drums acceleration mode handling planned (maybe)
         /*
         internal void DrumHitPostfix()
         {
@@ -129,58 +208,27 @@ namespace AccelerationMode
         }
         // */
 
-        GameObject gmObj;
-        TextMeshProUGUI scoreTMP;
-        // YARG.Core.Chart.SongChart chart;
-        double currentTime;
-        // string dbgTxt;
-        YARG.Gameplay.GameManager gameMgr;
+        public Type gmt;
+
+        public Type basePlayerT;
+        public Type gtrPlayerT;
+        public Type drumPlayerT;
+        public Type statsType;
+
+        public GameObject gmObj;
+        public TextMeshProUGUI scoreTMP;
+        public object gameMgr;
         bool isPlayingSong;
         bool changedWM;
-        // GameObject trackObj;  // Highway
-        YARG.Gameplay.Player.BasePlayer playerOne;
-        
-        Button btnAccel;
-
-        // i tried to make a thing to show notifications using the in-game toasts
-        /*
-        public void ShowToast(string msg = "", string level = "Info")
-        {
-            GameObject toastObj = GameObject.Find("Persistent Canvas/Toast Manager/Toast Fab");
-            toastObj.SetActive(true);
-            if (msg != "")
-            {
-                if (level.Contains("Info"))
-                {
-                    YARG.Menu.Persistent.ToastManager.ToastInformation(msg);
-                    return;
-                }
-                if (level.Contains("Warn"))
-                {
-                    YARG.Menu.Persistent.ToastManager.ToastWarning(msg);
-                    return;
-                }
-                if (level.Contains("Succ"))
-                {
-                    YARG.Menu.Persistent.ToastManager.ToastSuccess(msg);
-                    return;
-                }
-                if (level.Contains("Error"))
-                {
-                    YARG.Menu.Persistent.ToastManager.ToastWarning(msg);
-                    return;
-                }
-
-            }
-        }
-        // */
+        public Button btnAccel;
+        string yargVersionString;
 
         public void UpdateWatermark(string msg = "")
         {
-            GameObject wmObj = GameObject.Find("Watermark Container");
             // GameObject topBar = GameObject.Find("Info Container");
-            if (wmObj != null)
+            if (GameObject.Find("Watermark Container")!=null)
             {
+                GameObject wmObj = GameObject.Find("Watermark Container");
                 TMPro.TextMeshProUGUI wmTmp = wmObj.GetComponentInChildren<TextMeshProUGUI>();
                 string accelStatusPrefix = "<color=#00CC00>ON";
                 if (!accelModeEnabled)
@@ -188,10 +236,128 @@ namespace AccelerationMode
                     accelStatusPrefix = "<color=#FF0000>OFF";
                 }
 
-                wmTmp.text = "<b>YARG " + YARG.GlobalVariables.CurrentVersion.ToString() + "</b> Development Build <i>*MODDED*</i><br><b>Acceleration Mode: " + accelStatusPrefix + "</color></b><br>" + msg;
+                if (!changedWM)
+                {
+                    yargVersionString = wmTmp.text;
+
+                    if (btnAccel == null)
+                    {
+                        btnAccel = wmTmp.gameObject.AddComponent<UnityEngine.UI.Button>();
+                        btnAccel.onClick.AddListener(ToggleAccelMode);
+                        
+                        changedWM = true;
+                    }
+                }
+
+                wmTmp.text = "<i>*MODDED*</i> " + yargVersionString + "<br><size=20><b>Acceleration Mode v" + VersionString + ": " + accelStatusPrefix + "</color></b><br>" + msg;
                 wmTmp.alignment = TextAlignmentOptions.TopRight;
             }
         }
+
+        public IList GetPlayers(int index = -1)
+        {
+            GameObject go = gmObj;
+            if (go != null)
+            {
+                PropertyInfo pi = gmt.GetProperty("Players");
+                object man = go.GetComponent(gmt);
+                IList playerz = pi.GetValue(man, null) as IList;
+                
+                if (playerz.Count > 0)
+                {
+                    IList ret = null;
+                    if (index >= 0)
+                    {
+                        for (int i = 0; i < playerz.Count; i++)
+                        {
+                            if (i == index)
+                            {
+                                ret.Add(playerz[i]);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ret = playerz;
+                    }
+                    return ret;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else { return null; }
+        }
+
+        // Methods to get stats
+        public bool IsSPActive(int index = 0)
+        {
+            IList playerz = GetPlayers();
+            if (playerz.Count > index)
+            {
+                PropertyInfo statsInfo = playerz[index].GetType().GetProperty("Stats");
+                    
+                dynamic pStats = statsInfo.GetValue(playerz[index]);
+                object pStatsObj = (object) pStats;
+                
+                FieldInfo spField = statsType.GetField("IsStarPowerActive");
+                bool sp = (bool) statsType.GetField("IsStarPowerActive").GetValue(pStatsObj);
+                
+                return sp;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        // TO DO: Fix score reset
+        public void SetScore(int score = 0, object player = null)
+        {
+            if (player == null)
+                player = GetPlayers()[0];
+
+            if (player != null)
+            {
+                if (player.GetType().Name.EndsWith("Player"))
+                {
+                    Type playerType = player.GetType();
+                    if (playerType.Name.Contains("Player"))
+                    {
+                        var stats = playerType.GetProperty("Stats").GetValue(player);
+                        object scoreObj = statsType.GetProperty("Score").GetValue(stats);
+                        statsType.GetField("Score").SetValue(scoreObj, score);
+                        playerType.GetProperty("Stats").SetValue(player, stats);
+
+                    }
+                }
+            }
+        }
+
+        // Attempt at wrapping player stats
+        /*
+        public class PlayerStats
+        {
+            object GetPlayerStats()
+            {
+                return null;
+            }
+
+            public IList statsList
+            {
+                get
+                {
+                    IList list = null;
+                    return list;
+                }
+                set
+                {
+                    
+                }
+            }
+        } // */
+
 
         // <CONFIG>
         ConfigFile cfg;
@@ -207,8 +373,18 @@ namespace AccelerationMode
         public float gtrMissSlowdown;
         // </CONFIG>
 
-        public void Awake()
+        public void Start()
         {
+            SceneManager.sceneLoaded += SceneLoaded;
+
+            asm = Assembly.Load("Assembly-CSharp.dll");
+            yargCoreAsm = Assembly.Load("YARG.Core.dll");
+            gmt = asm.GetType("YARG.Gameplay.GameManager");
+            basePlayerT = asm.GetType("YARG.Gameplay.Player.BasePlayer");
+            gtrPlayerT  = asm.GetType("YARG.Gameplay.Player.FiveFretPlayer");
+            drumPlayerT = asm.GetType("YARG.Gameplay.Player.DrumsPlayer");
+            statsType =   yargCoreAsm.GetType("YARG.Core.Engine.BaseStats");
+
             // init config stuff
             cfg = new ConfigFile(Path.Combine(Paths.ConfigPath, "AccelerationMode.cfg"), true);
 
@@ -222,7 +398,7 @@ namespace AccelerationMode
                 "Whether the song speed should be limited.");
             cfgSpeedCap = cfg.Bind("General",
                 "speed_cap_percent",
-                200f,
+                300f,
                 "The maximum song speed.  Only applies if enable_speed_cap is set to true.");
 
             cfgGtrHitSpeedup = cfg.Bind("Guitar",
@@ -240,111 +416,107 @@ namespace AccelerationMode
             gtrHitSpeedup       = System.Math.Abs(cfgGtrHitSpeedup.Value / 100);
             gtrMissSlowdown     = System.Math.Abs(cfgGtrMissSlowdown.Value / 100);
 
-            if (!songSpeedCapEnabled || songSpeedCap > 50f)
-                songSpeedCap = 50f;
+            if (!songSpeedCapEnabled || songSpeedCap > 49.95f)
+                songSpeedCap = 49.95f;
+            if (songSpeedCap < 1f + gtrHitSpeedup) {
+                songSpeedCap = 1f + gtrHitSpeedup;
+            }
 
             accelModeEnabled = cfgAccelModeToggle.Value;
             netSpeed = 1f;
             isPlayingSong = false;
             changedWM = false;
-
-            Logger.LogInfo("AccelerationMode is loading...");
-            Harmony.PatchAll();
-            Logger.LogInfo("AccelerationMode is loaded.");
+            yargVersionString = "";
         }
 
         public void LateUpdate()
         {
-            try
+            if (!didPatch)
             {
-                if (btnAccel == null)
-                {
-                    GameObject wmObj = GameObject.Find("Watermark Container");
-                    GameObject topBar = GameObject.Find("Info Container");
-                    TMPro.TextMeshProUGUI wmTmp = wmObj.GetComponentInChildren<TextMeshProUGUI>();
-                    btnAccel = wmTmp.gameObject.AddComponent<UnityEngine.UI.Button>();
-                    btnAccel.onClick.AddListener(ToggleAccelMode);
-                }
+                LogMsg("AccelerationMode is loading...");
+                harmony.PatchAll();
+                LogMsg("AccelerationMode is loaded.");
+                didPatch = true;
+            }
 
-                gmObj = GameObject.Find("Game Manager");
-                if(gmObj != null)
-                {
-                    if (!isPlayingSong)
-                    {
-                        gameMgr = gmObj.GetComponent<YARG.Gameplay.GameManager>();
-                        netSpeed = gameMgr.SelectedSongSpeed;
-                        scoreTMP = GameObject.Find("Canvas/ScoreDisplay/Score Box/BGBox/Text").GetComponent<TextMeshProUGUI>();
-                        if (accelModeEnabled)
-                            scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
-                        currentTime = gmObj.GetComponent<YARG.Gameplay.GameManager>().RealSongTime;
-                        playerOne = gameMgr.Players[0];
-                        UpdateWatermark("<size=20><i>*Setting locked during play*</i></size><br>");
-                        isPlayingSong = true;
-                    }
-                    
-                    /*
-                    // Disable highway to hide the jank
-                    trackObj = GameObject.Find("Track Model");
-                    if (trackObj.activeSelf)
-                    {
-                        trackObj.SetActive(false);
-                    }
-
-                    // THE FOLLOWING IS EXTRA DEBUG STUFF I WAS TINKERING WITH
-                    
-                    dbgTxt += "[Stats]<br>Notes hit P1:  " + playerOne.NotesHit.ToString() + "/" + playerOne.TotalNotes.ToString();
-                    dbgTxt += "<br>";
-
-                    // int indexPrev = YARG.Core.Chart.ChartEventExtensions.GetIndexOfPrevious(chart.GlobalEvents, currentTime);
-
-
-                    // dbgTxt += "Song time:  " + currentTime.ToString() + "<br>";
-
-
-
-                    // dbgTxt += "<br>[Global Chart events]";
-                    // dbgTxt += "<br>First event: " + chart.GlobalEvents[0].Text.ToString();
-                    // dbgTxt += "<br>";
-                    // dbgTxt += "Last:  `" + chart.GlobalEvents.GetPrevious(currentTime).Text.ToString() + "`<br>";
-                    // dbgTxt += "<br>Next:  " + chart.GlobalEvents[indexNext].Text.ToString();
-                    // */
-                }
-                else
-                {
-                    if (isPlayingSong)
-                    {
-                        UpdateWatermark("<size=20>(click to toggle)</size><br>");
-                        
-                        isPlayingSong = false;
-                    }
-                }
-
-                if (!changedWM)
+            if (!changedWM)
+            {
+                try
                 {
                     UpdateWatermark("<size=20>(click to toggle)</size><br>");
-                    changedWM = true;
+                }
+                catch { }
+            }
+            try
+            {
+                gmObj = GameObject.Find("Game Manager");
+                gameMgr = gmObj.GetComponent(gmt);
+            }
+            catch { }
+            if (gmObj)
+            {
+                if (!isPlayingSong)
+                {
+                    netSpeed = 1f;
+                    try
+                    {
+                        
+                        if (GameObject.Find("/Canvas/ScoreDisplay/Score Box/BGBox/Text"))
+                        {
+                            scoreTMP = GameObject.Find("/Canvas/ScoreDisplay/Score Box/BGBox/Text").GetComponent<TextMeshProUGUI>();
+                            if (accelModeEnabled)
+                                scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
+
+                        }
+                    } catch { }
+                    isPlayingSong = true;
+                    UpdateWatermark("<size=20><i>*Setting locked during play*</i></size><br>");
+                }
+
+                if (isPlayingSong)
+                {
+                    bool succ = false;
+
+                    try
+                    {
+                        gameMgr = gmObj.GetComponent("YARG.Gameplay.GameManager");
+                        IList p = GetPlayers();
+                        if (p != null)
+                        {
+                            // Logger.LogInfo("Players: " + p.Count);
+                            succ = true;
+                        }
+                        
+                    }
+                    catch { }
+
+                    if (succ)
+                    {
+                        if (IsSPActive(0) && accelModeEnabled && netSpeed != 1f)
+                        //if (accelModeEnabled)
+                        {
+                            netSpeed = 1f;
+                            UpdateSongSpeed(netSpeed);
+                            // scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
+                        }
+                    }
+                    // */
                 }
             }
-            catch
+            else
             {
-                // UpdateWatermark("Play a chart to debug!");
-            }
-            // */
+                if (isPlayingSong)
+                {
+                    UpdateWatermark("<size=20>(click to toggle)</size><br>");
+                    isPlayingSong = false;
+                }
 
-            if (playerOne.Stats.IsStarPowerActive && accelModeEnabled && netSpeed != 1f)
-            {
-                netSpeed = 1f;
-                gameMgr.SetSongSpeed(netSpeed);
-                scoreTMP.text = "<mspace=0.538em>" + netSpeed.ToString("0.00") + "×</mspace>  <size=18>Speed</size>";
-
-                // old functionality i guess
-
-                // playerOne.Stats.StarPowerAmount -= 0.499999; 
-                // if (playerOne.Stats.StarPowerAmount < 0) { playerOne.Stats.StarPowerAmount = 0; }
-                // playerOne.Stats.IsStarPowerActive = false;
             }
 
         }
-
+        public void SceneLoaded(Scene scene, LoadSceneMode loadSceneMode)
+        {
+            
+        }
     }
 }
