@@ -1,4 +1,4 @@
-# Acceleration Mode for [YARG](https://yarg.in/)'s new engine (v0.12.0 alpha builds)
+# This mod is discontinued (for now)
 A [BepInEx 6](https://github.com/BepInEx/BepInEx/releases/tag/v6.0.0-pre.1) game mod for YARG (Yet Another Rhythm Game) that makes songs speed up with every note hit.
 
 ### ***PLEASE do not report bugs to the YARG team while this mod is installed!***
@@ -45,4 +45,4 @@ If all goes well, your config should be the same as before the update.
 - YARG was made by [EliteAsian123](https://github.com/EliteAsian123) : [Download YARG here](https://yarg.in/)
 - BepInEx : https://github.com/BepInEx/BepInEx
 
-Special thanks to the Clone Hero and YARG communities, especially [JasonParadise](https://twitch.tv/JasonParadise), [Acai](https://twitch.tv/Acai), and [Frif](https://twitch.tv/Frif).
+Special thanks to the Clone Hero and YARG communities, especially [JasonParadise](https://twitch.tv/JasonParadise), [Acai](https://twitch.tv/Acai), and others.
